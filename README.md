@@ -1,0 +1,1 @@
+# libopen3d.a
