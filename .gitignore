@@ -1,0 +1,10 @@
+_*
+.git
+.build
+.xbuild
+.swiftpm
+build
+pkg
+lib3
+Package.resolved
+.DS_Store
