@@ -4,6 +4,7 @@
 # Script params
 
 LIBNAME="libopen3d"
+# REBUILDLIBS="YES"
 
 # What to do (build, test)
 BUILDWHAT="$1"
@@ -179,6 +180,11 @@ if    [ ! -z "${REBUILDLIBS}" ] \
 
     gitCheckout "https://github.com/kewlbear/Open3D.git" "0.17.0-1fix6008" "${LIBBUILD}"
 
+    sed -i '' "s#, r2#;// +++ , r2#g" \
+        "${LIBBUILD}/cpp/open3d/pipelines/registration/FastGlobalRegistration.cpp"
+    sed -i '' "s#r2 #;// +++ r2 #g" \
+        "${LIBBUILD}/cpp/open3d/pipelines/registration/FastGlobalRegistration.cpp"
+
     cd "${LIBBUILD}"
     sh ios/all.sh
 
@@ -214,14 +220,31 @@ if    [ ! -z "${REBUILDLIBS}" ] \
 
     # Combine libs
     Log "Runnning libtool..."
-    LIBSRC="${LIBBUILDOUT}/build/core.build/Release-iphoneos/libcore.a \
-            ${LIBBUILDOUT}/build/io.build/Release-iphoneos/libio.a \
-            ${LIBBUILDOUT}/build/camera.build/Release-iphoneos/libcamera.a \
-            ${LIBBUILDOUT}/build/geometry.build/Release-iphoneos/libgeometry.a \
+    LIBSRC="\
+            ${LIBBUILDOUT}/lib/iOS/libOpen3D.a \
+            ${LIBBUILDOUT}/lib/iOS/libOpen3D_3rdparty_liblzf.a \
+            ${LIBBUILDOUT}/lib/iOS/libOpen3D_3rdparty_qhullcpp.a \
+            ${LIBBUILDOUT}/lib/iOS/libOpen3D_3rdparty_qhull_r.a \
+            ${LIBBUILDOUT}/lib/iOS/libOpen3D_3rdparty_rply.a \
+            ${LIBBUILDOUT}/lib/iOS/libOpen3D_3rdparty_rply.a \
             ${LIBBUILDOUT}/assimp/lib/libassimp.a \
             ${LIBBUILDOUT}/assimp/lib/libIrrXML.a \
             ${LIBBUILDOUT}/assimp/lib/libzlibstatic.a \
+            ${LIBBUILDOUT}/libpng/src/ext_libpng-build/Release-iphoneos/libpng.a \
+            ${LIBBUILDOUT}/libpng/src/ext_libpng-build/Release-iphoneos/libpng16.a \
+            ${LIBBUILDOUT}/turbojpeg/lib/libjpeg.a \
             "
+
+            # ${LIBBUILDOUT}/libpng/lib/libpng16.a \
+            # ${LIBBUILDOUT}/build/core.build/Release-iphoneos/libcore.a \
+            # ${LIBBUILDOUT}/build/io.build/Release-iphoneos/libio.a \
+            # ${LIBBUILDOUT}/build/data.build/Release-iphoneos/libdata.a \
+            # ${LIBBUILDOUT}/build/camera.build/Release-iphoneos/libcamera.a \
+            # ${LIBBUILDOUT}/build/geometry.build/Release-iphoneos/libgeometry.a \
+            # ${LIBBUILDOUT}/build/utility.build/Release-iphoneos/libutility.a \
+            # ${LIBBUILDOUT}/assimp/lib/libassimp.a \
+            # ${LIBBUILDOUT}/assimp/lib/libIrrXML.a \
+            # ${LIBBUILDOUT}/assimp/lib/libzlibstatic.a \
 
     ls -l ${LIBSRC}
     libtool -static -o "${PKGROOT}/${TARGET}/${LIBNAME}.a" ${LIBSRC}
