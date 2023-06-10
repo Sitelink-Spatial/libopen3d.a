@@ -1,5 +1,30 @@
 #!/bin/bash
 
+# Examples:
+#
+#   Build for desktop
+#   > ./build.sh build release arm64-apple-macosx
+#
+#   Build for iphone
+#   > ./build.sh build release arm64-apple-ios14.0
+#
+#   Build for iphone
+#   > ./build.sh build release x86_64-apple-ios14.0-simulator
+
+# Package layout
+#
+# ├── Info.plist
+# ├── [ios-arm64]
+# │     ├── mylib.a
+# │     └── [include]
+# ├── [ios-arm64_x86_64-simulator]
+# │     ├── mylib.a
+# │     └── [include]
+# └── [macos-arm64_x86_64]
+#       ├── mylib.a
+#       └── [include]
+
+
 #--------------------------------------------------------------------
 # Script params
 
@@ -12,7 +37,7 @@ BUILDWHAT="$1"
 # Build type (release, debug)
 BUILDTYPE="$2"
 
-# Build target, i.e. arm64-apple-macosx, aarch64-apple-ios14.0, x86_64-apple-ios13.0-simulator, ...
+# Build target, i.e. arm64-apple-macosx, aarch64-apple-ios14.0, x86_64-apple-ios14.0-simulator, ...
 BUILDTARGET="$3"
 
 # Build Output
@@ -43,12 +68,8 @@ gitCheckout()
     # Check out c++ library if needed
     if [ ! -d "${LIBBUILD}" ]; then
         Log "Checking out: ${LIBGIT} -> ${LIBGITVER}"
-        git clone ${LIBGIT} ${LIBBUILD}
         if [ ! -z "${LIBGITVER}" ]; then
-            # cd "${LIBBUILD}"
-            # git checkout ${LIBGITVER}
-            # cd "${BUILDOUT}"
-            git clone -b ${LIBGITVER} ${LIBGIT} ${LIBBUILD}
+            git clone --depth 1 -b ${LIBGITVER} ${LIBGIT} ${LIBBUILD}
         else
             git clone ${LIBGIT} ${LIBBUILD}
         fi
@@ -58,6 +79,7 @@ gitCheckout()
         exitWithError "Failed to checkout $LIBGIT"
     fi
 }
+
 
 #--------------------------------------------------------------------
 # Options
@@ -79,19 +101,33 @@ if [ -z "${BUILDTARGET}" ]; then
     BUILDTARGET="arm64-apple-macosx"
 fi
 
+# ios-arm64_x86_64-simulator
 if [[ $BUILDTARGET == *"ios"* ]]; then
-    OS="ios"
-else
-    OS="macos"
+    TGT_OS="ios"
+    else
+    TGT_OS="macos"
 fi
 
 if [[ $BUILDTARGET == *"arm64"* ]]; then
-    ARCH="arm64"
+    if [[ $BUILDTARGET == *"x86_64"* ]]; then
+        TGT_ARCH="arm64_x86_64"
+    elif [[ $BUILDTARGET == *"x86"* ]]; then
+        TGT_ARCH="arm64_x86"
+    else
+        TGT_ARCH="arm64"
+    fi
+elif [[ $BUILDTARGET == *"x86_64"* ]]; then
+    TGT_ARCH="x86_64"
+elif [[ $BUILDTARGET == *"x86"* ]]; then
+    TGT_ARCH="x86"
 else
-    ARCH="x86_64"
+    exitWithError "Invalid architecture : $BUILDTARGET"
 fi
 
-TARGET="${OS}-${ARCH}"
+TGT_OPTS=
+if [[ $BUILDTARGET == *"simulator"* ]]; then
+    TGT_OPTS="-simulator"
+fi
 
 # NUMCPUS=1
 NUMCPUS=$(sysctl -n hw.physicalcpu)
@@ -127,22 +163,25 @@ if [ ! -d "$BUILDOUT" ]; then
     exitWithError "Failed to create diretory : $BUILDOUT"
 fi
 
-LIBROOT="${BUILDOUT}/${TARGET}/lib3"
-LIBINST="${BUILDOUT}/${TARGET}/install"
+TARGET="${TGT_OS}-${TGT_ARCH}${TGT_OPTS}"
+
+LIBROOT="${BUILDOUT}/${BUILDTARGET}/lib3"
+LIBINST="${BUILDOUT}/${BUILDTARGET}/install"
 
 PKGNAME="${LIBNAME}.a.xcframework"
 PKGROOT="${BUILDOUT}/pkg/${BUILDTYPE}/${PKGNAME}"
-PKGOUT="${BUILDOUT}/pkg/${BUILDTYPE}/${PKGNAME}.zip"
+PKGFILE="${BUILDOUT}/pkg/${BUILDTYPE}/${PKGNAME}.zip"
 
 # iOS toolchain
 if [[ $BUILDTARGET == *"ios"* ]]; then
+
     gitCheckout "https://github.com/leetal/ios-cmake.git" "4.3.0" "${LIBROOT}/ios-cmake"
     TOOLCHAIN="-DCMAKE_TOOLCHAIN_FILE=${LIBROOT}/ios-cmake/ios.toolchain.cmake \
                -DPLATFORM=OS64 \
                -DCMAKE_OSX_ARCHITECTURES=\"arm64\" \
                -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
                -DCMAKE_XCODE_ATTRIBUTE_ENABLE_BITCODE=\"NO\" \
-               -DCMAKE_XCODE_EFFECTIVE_PLATFORMS\"-iphoneos\" \
+               -DCMAKE_XCODE_EFFECTIVE_PLATFORMS=\"-iphoneos\" \
                -DDEFAULT_SYSROOT=`xcrun --sdk iphoneos --show-sdk-path` \
                -DCMAKE_OSX_SYSROOT=`xcrun --sdk iphoneos --show-sdk-path` \
                -DCMAKE_OSX_SYSROOT_INT=`xcrun --sdk iphoneos --show-sdk-path` \
@@ -161,6 +200,7 @@ Log "BUILDTARGET    : ${BUILDTARGET}"
 Log "ROOTDIR        : ${ROOTDIR}"
 Log "BUILDOUT       : ${BUILDOUT}"
 Log "TARGET         : ${TARGET}"
+Log "PLATFORM       : ${TGT_PLATFORM}"
 Log "PKGNAME        : ${PKGNAME}"
 Log "PKGROOT        : ${PKGROOT}"
 Log "LIBROOT        : ${LIBROOT}"
@@ -185,19 +225,34 @@ LIBBUILDOUT="${LIBBUILD}/build"
 LIBINSTFULL="${LIBINST}/${BUILDTARGET}/${BUILDTYPE}"
 
 
-if [ "$TARGET" == "ios-arm64" ]; then
+if [ "$TGT_OS" == "ios" ]; then
 
     #-------------------------------------------------------------------
     # Checkout and build Open3D
     #-------------------------------------------------------------------
+
+    if [[ $BUILDTARGET == *"simulator"* ]]; then
+        OUTKEY="${LIBBUILDOUT}/build/core.build/Release-iphonesimulator/libcore.a"
+    else
+        OUTKEY="${LIBBUILDOUT}/lib/iOS/libOpen3D.a"
+    fi
+
     if    [ ! -z "${REBUILDLIBS}" ] \
-    || [ ! -f "${LIBBUILDOUT}/lib/iOS/libOpen3D.a" ]; then
+    || [ ! -f "${OUTKEY}" ]; then
 
         Log "Building ${LIBNAME}..."
 
-        gitCheckout "https://github.com/kewlbear/Open3D.git" "0.17.0-1fix6008" "${LIBBUILD}"
+        gitCheckout "https://github.com/kewlbear/Open3D.git" "iOS" "${LIBBUILD}"
 
-        sed -i '' "s|../ios/iOS.cmake|${LIBINSTFULL}|g" "${LIBBUILD}/ios/build.sh"
+        # !!! Can't just do this, installation path is hardcoded other places
+        # sed -i '' "s|../ios/install|${LIBINSTFULL}|g" "${LIBBUILD}/ios/config.sh"
+
+        # Allows building more than once, simulator build often fails the first time...
+        sed -i '' "s|rm -rf build|# +++ rm -rf build|g" \
+            "${LIBBUILD}/ios/config.sh"
+        # sed -i '' "s|CMAKE_OSX_DEPLOYMENT_TARGET=13|CMAKE_OSX_DEPLOYMENT_TARGET=14|g" \
+        #     "${LIBBUILD}/ios/config.sh"
+
 
         sed -i '' "s|, r2|;// +++ , r2|g" \
             "${LIBBUILD}/cpp/open3d/pipelines/registration/FastGlobalRegistration.cpp"
@@ -207,14 +262,51 @@ if [ "$TARGET" == "ios-arm64" ]; then
         sed -i '' "s|    Material(const Material &mat) = default;|    // +++ Material(const Material &mat) = default;|g" \
             "${LIBBUILD}/cpp/open3d/visualization/rendering/Material.h"
 
-        cd "${LIBBUILD}"
-        sh ios/all.sh
+
+        if [[ $BUILDTARGET == *"simulator"* ]]; then
+
+            cd "${LIBBUILD}/ios"
+            git clone https://github.com/kewlbear/LAPACKE-iOS.git
+
+            cd "${LIBBUILD}"
+            mkdir -p "${LIBBUILD}/build"
+            cmake . -B ./build \
+                -DBUILD_CUDA_MODULE=OFF \
+                -DBUILD_GUI=OFF \
+                -DBUILD_TENSORFLOW_OPS=OFF \
+                -DBUILD_PYTORCH_OPS=OFF \
+                -DBUILD_UNIT_TESTS=OFF \
+                -DBUILD_ISPC_MODULE=OFF \
+                -DCMAKE_INSTALL_PREFIX=../ios/install \
+                -DBUILD_EXAMPLES=OFF \
+                -DWITH_IPPICV=OFF \
+                -GXcode \
+                -DCMAKE_TOOLCHAIN_FILE=../ios/iOS.cmake \
+                "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64" \
+                -DCMAKE_OSX_DEPLOYMENT_TARGET=13 \
+                -DCMAKE_XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH=NO
+
+            xcodebuild -project build/Open3D.xcodeproj -target ext_qhull -configuration Release -sdk iphonesimulator -xcconfig ios/override.xcconfig
+            xcodebuild -project build/Open3D.xcodeproj -target install -configuration Release -sdk iphonesimulator -xcconfig ios/override.xcconfig
+            xcodebuild -project build/Open3D.xcodeproj -target pybind -configuration Release -sdk iphonesimulator -xcconfig ios/override.xcconfig
+            xcodebuild -project build/turbojpeg/src/ext_turbojpeg-build/libjpeg-turbo.xcodeproj -target turbojpeg-static -configuration Release -sdk iphonesimulator -xcconfig ios/override.xcconfig
+            xcodebuild -project build/libpng/src/ext_libpng-build/libpng.xcodeproj -target png_static -configuration Release -sdk iphonesimulator -xcconfig ios/override.xcconfig
+            xcodebuild -project build/jsoncpp/src/ext_jsoncpp-build/jsoncpp.xcodeproj -target jsoncpp_static -configuration Release -sdk iphonesimulator -xcconfig ios/override.xcconfig
+            xcodebuild -project build/faiss/src/ext_faiss-build/faiss.xcodeproj -target faiss -configuration Release -sdk iphonesimulator -xcconfig ios/override.xcconfig
+            xcodebuild -project build/tbb/src/ext_tbb-build/tbb.xcodeproj -target tbb_static -configuration Release -sdk iphonesimulator -xcconfig ios/override.xcconfig
+            xcodebuild -project build/assimp/src/ext_assimp-build/Assimp.xcodeproj -target assimp -configuration Release -sdk iphonesimulator -xcconfig ios/override.xcconfig
+        else
+            cd "${LIBBUILD}"
+            sh ios/all.sh
+        fi
+
+        if [ ! -f "${OUTKEY}" ]; then
+            exitWithError "Failed to build ${OUTKEY}"
+        fi
+
+        cmake --install ./build
 
         cd "${ROOTDIR}"
-
-        if [ ! -f "${LIBBUILDOUT}/lib/iOS/libOpen3D.a" ]; then
-            exitWithError "Failed to build libOpen3D.a"
-        fi
 
     fi
 
@@ -247,20 +339,38 @@ if [ "$TARGET" == "ios-arm64" ]; then
 
         # Combine libs
         Log "Runnning libtool..."
-        LIBSRC="\
-                ${LIBBUILDOUT}/lib/iOS/libOpen3D.a \
-                ${LIBBUILDOUT}/lib/iOS/libOpen3D_3rdparty_liblzf.a \
-                ${LIBBUILDOUT}/lib/iOS/libOpen3D_3rdparty_qhullcpp.a \
-                ${LIBBUILDOUT}/lib/iOS/libOpen3D_3rdparty_qhull_r.a \
-                ${LIBBUILDOUT}/lib/iOS/libOpen3D_3rdparty_rply.a \
-                ${LIBBUILDOUT}/lib/iOS/libOpen3D_3rdparty_rply.a \
-                ${LIBBUILDOUT}/assimp/lib/libassimp.a \
-                ${LIBBUILDOUT}/assimp/lib/libIrrXML.a \
-                ${LIBBUILDOUT}/assimp/lib/libzlibstatic.a \
-                ${LIBBUILDOUT}/libpng/src/ext_libpng-build/Release-iphoneos/libpng.a \
-                ${LIBBUILDOUT}/libpng/src/ext_libpng-build/Release-iphoneos/libpng16.a \
-                ${LIBBUILDOUT}/turbojpeg/lib/libjpeg.a \
-                "
+
+        if [[ $BUILDTARGET == *"simulator"* ]]; then
+            LIBSRC="\
+                    ${LIBBUILDOUT}/lib/Release/libOpen3D.a \
+                    ${LIBBUILDOUT}/lib/Release/libOpen3D_3rdparty_liblzf.a \
+                    ${LIBBUILDOUT}/lib/Release/libOpen3D_3rdparty_qhullcpp.a \
+                    ${LIBBUILDOUT}/lib/Release/libOpen3D_3rdparty_qhull_r.a \
+                    ${LIBBUILDOUT}/lib/Release/libOpen3D_3rdparty_rply.a \
+                    ${LIBBUILDOUT}/lib/Release/libOpen3D_3rdparty_rply.a \
+                    ${LIBBUILDOUT}/assimp/lib/libassimp.a \
+                    ${LIBBUILDOUT}/assimp/lib/libIrrXML.a \
+                    ${LIBBUILDOUT}/assimp/lib/libzlibstatic.a \
+                    ${LIBBUILDOUT}/libpng/src/ext_libpng-build/Release-iphonesimulator/libpng.a \
+                    ${LIBBUILDOUT}/libpng/src/ext_libpng-build/Release-iphonesimulator/libpng16.a \
+                    ${LIBBUILDOUT}/turbojpeg/lib/libjpeg.a \
+                    "
+        else
+            LIBSRC="\
+                    ${LIBBUILDOUT}/lib/iOS/libOpen3D.a \
+                    ${LIBBUILDOUT}/lib/iOS/libOpen3D_3rdparty_liblzf.a \
+                    ${LIBBUILDOUT}/lib/iOS/libOpen3D_3rdparty_qhullcpp.a \
+                    ${LIBBUILDOUT}/lib/iOS/libOpen3D_3rdparty_qhull_r.a \
+                    ${LIBBUILDOUT}/lib/iOS/libOpen3D_3rdparty_rply.a \
+                    ${LIBBUILDOUT}/lib/iOS/libOpen3D_3rdparty_rply.a \
+                    ${LIBBUILDOUT}/assimp/lib/libassimp.a \
+                    ${LIBBUILDOUT}/assimp/lib/libIrrXML.a \
+                    ${LIBBUILDOUT}/assimp/lib/libzlibstatic.a \
+                    ${LIBBUILDOUT}/libpng/src/ext_libpng-build/Release-iphoneos/libpng.a \
+                    ${LIBBUILDOUT}/libpng/src/ext_libpng-build/Release-iphoneos/libpng16.a \
+                    ${LIBBUILDOUT}/turbojpeg/lib/libjpeg.a \
+                    "
+        fi
 
         ls -l ${LIBSRC}
         libtool -static -o "${PKGROOT}/${TARGET}/${LIBNAME}.a" ${LIBSRC}
@@ -270,13 +380,19 @@ if [ "$TARGET" == "ios-arm64" ]; then
 
         # Copy manifest
         cp "${ROOTDIR}/Info.target.plist.in" "${PKGROOT}/${TARGET}/Info.target.plist"
-        sed -i '' "s|%%OS%%|${OS}|g" "${PKGROOT}/${TARGET}/Info.target.plist"
-        sed -i '' "s|%%ARCH%%|${ARCH}|g" "${PKGROOT}/${TARGET}/Info.target.plist"
+        sed -i '' "s|%%TARGET%%|${TARGET}|g" "${PKGROOT}/${TARGET}/Info.target.plist"
+        sed -i '' "s|%%OS%%|${TGT_OS}|g" "${PKGROOT}/${TARGET}/Info.target.plist"
+        sed -i '' "s|%%ARCH%%|${TGT_ARCH}|g" "${PKGROOT}/${TARGET}/Info.target.plist"
         sed -i '' "s|%%INCPATH%%|${INCPATH}|g" "${PKGROOT}/${TARGET}/Info.target.plist"
         sed -i '' "s|%%LIBPATH%%|${LIBPATH}|g" "${PKGROOT}/${TARGET}/Info.target.plist"
 
-    fi
+        EXTRA=
+        if [[ $BUILDTARGET == *"simulator"* ]]; then
+            EXTRA="<key>SupportedPlatformVariant</key><string>simulator</string>"
+        fi
+        sed -i '' "s|%%EXTRA%%|${EXTRA}|g" "${PKGROOT}/${TARGET}/Info.target.plist"
 
+    fi
 
 elif [ "$TARGET" == "macos-arm64" ]; then
 
@@ -287,19 +403,7 @@ elif [ "$TARGET" == "macos-arm64" ]; then
     if    [ ! -z "${REBUILDLIBS}" ] \
        || [ ! -f "${LIBINSTFULL}/lib/libOpen3D.a" ]; then
 
-        LIBGIT="https://github.com/isl-org/Open3D"
-        LIBGITVER="0.17.0-1fix6008"
-
-        # Check out c++ library if needed
-        if [ ! -d "${LIBBUILD}" ]; then
-            Log "Checking out: ${LIBGIT} : ${LIBGITVER}"
-            git clone ${LIBGIT} ${LIBBUILD}
-            if [ ! -z "${LIBGITVER}" ]; then
-                cd "${LIBBUILD}"
-                git checkout ${LIBGITVER}
-                cd "${ROOTDIR}"
-            fi
-        fi
+        gitCheckout "https://github.com/isl-org/Open3D.git" "v0.17.0-1fix6008" "${LIBBUILD}"
 
         # Mods
         sed -i '' "s/std::min(kMaxThreads, num_searches);/std::min(kMaxThreads, num_searches); (void)kOuterThreads;/g" \
@@ -319,6 +423,7 @@ elif [ "$TARGET" == "macos-arm64" ]; then
         cd "${LIBBUILD}"
 
         cmake . -B ./build -DCMAKE_BUILD_TYPE=${BUILDTYPE} \
+                        ${TOOLCHAIN} \
                         -DBUILD_GUI=OFF \
                         -DBUILD_EXAMPLES=OFF \
                         -DBUILD_PYTHON_MODULE=OFF \
@@ -391,15 +496,24 @@ elif [ "$TARGET" == "macos-arm64" ]; then
 
         # Copy manifest
         cp "${ROOTDIR}/Info.target.plist.in" "${PKGROOT}/${TARGET}/Info.target.plist"
-        sed -i '' "s|%%OS%%|${OS}|g" "${PKGROOT}/${TARGET}/Info.target.plist"
-        sed -i '' "s|%%ARCH%%|${ARCH}|g" "${PKGROOT}/${TARGET}/Info.target.plist"
+        sed -i '' "s|%%TARGET%%|${TARGET}|g" "${PKGROOT}/${TARGET}/Info.target.plist"
+        sed -i '' "s|%%OS%%|${TGT_OS}|g" "${PKGROOT}/${TARGET}/Info.target.plist"
+        sed -i '' "s|%%ARCH%%|${TGT_ARCH}|g" "${PKGROOT}/${TARGET}/Info.target.plist"
         sed -i '' "s|%%INCPATH%%|${INCPATH}|g" "${PKGROOT}/${TARGET}/Info.target.plist"
         sed -i '' "s|%%LIBPATH%%|${LIBPATH}|g" "${PKGROOT}/${TARGET}/Info.target.plist"
 
+        EXTRA=
+        if [[ $BUILDTARGET == *"simulator"* ]]; then
+            EXTRA="<key>SupportedPlatformVariant</key><string>simulator</string>"
+        fi
+        sed -i '' "s|%%EXTRA%%|${EXTRA}|g" "${PKGROOT}/${TARGET}/Info.target.plist"
     fi
-
 fi
 
+
+#-------------------------------------------------------------------
+# Create full package
+#-------------------------------------------------------------------
 if [ -d "${PKGROOT}" ]; then
 
     cd "${PKGROOT}"
@@ -422,16 +536,16 @@ if [ -d "${PKGROOT}" ]; then
         cd "${PKGROOT}/.."
 
         # Remove old package if any
-        if [ -f "$PKGNAME" ]; then
-            rm "$PKGNAME"
+        if [ -f "${PKGFILE}" ]; then
+            rm "${PKGFILE}"
         fi
 
         # Create new package
-        zip -r "${PKGOUT}" "$PKGNAME" -x "*.DS_Store"
-        # touch "${PKGOUT}"
+        zip -r "${PKGFILE}" "$PKGNAME" -x "*.DS_Store"
+        # touch "${PKGFILE}"
 
         # Calculate sha256
-        openssl dgst -sha256 < "${PKGOUT}" > "${PKGOUT}.zip.sha256.txt"
+        openssl dgst -sha256 < "${PKGFILE}" > "${PKGFILE}.sha256.txt"
 
         cd "${BUILDOUT}"
 

@@ -2,7 +2,7 @@
 			<key>HeadersPath</key>
 			<string>include</string>
 			<key>LibraryIdentifier</key>
-			<string>%%OS%%-%%ARCH%%</string>
+			<string>%%TARGET%%</string>
 			<key>LibraryPath</key>
 			<string>%%LIBPATH%%</string>
 			<key>SupportedArchitectures</key>
@@ -11,4 +11,6 @@
 			</array>
 			<key>SupportedPlatform</key>
 			<string>%%OS%%</string>
+			%%EXTRA%%
 		</dict>
+
