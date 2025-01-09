@@ -150,6 +150,9 @@ TGT_OPTS=
 if [[ $BUILDTARGET == *"simulator"* ]]; then
     TGT_OPTS="-simulator"
 fi
+if [[ $BUILDTARGET == *"xbuild"* ]]; then
+    TGT_OPTS="-xbuild"
+fi
 
 # NUMCPUS=1
 NUMCPUS=$(sysctl -n hw.physicalcpu)
@@ -201,8 +204,10 @@ LIBROOT="${BUILDOUT}/${BUILDTARGET}/lib3"
 LIBINST="${BUILDOUT}/${BUILDTARGET}/install"
 
 PKGNAME="${LIBNAME}.a.xcframework"
-PKGROOT="${BUILDOUT}/pkg/${PKGNAME}"
-PKGFILE="${BUILDOUT}/pkg/${PKGNAME}.zip"
+PKGBASE="${BUILDOUT}/pkg"
+PKGBUILD="${PKGBASE}/build"
+PKGROOT="${PKGBASE}/${PKGNAME}"
+PKGFILE="${PKGBASE}/${PKGNAME}.zip"
 
 # iOS toolchain
 if [[ $BUILDTARGET == *"ios"* ]]; then
@@ -230,7 +235,7 @@ if [[ $BUILDTARGET == *"ios"* ]]; then
     else
         if [ "${TGT_ARCH}" == "x86" ]; then
             TGT_PLATFORM="OS"
-        elif [ "${TGT_ARCH}" == "x86_64" ]; then
+        elif [ "${TGT_ARCH}" == *"x86_64"* ]; then
             TGT_ARCH="arm64_x86_64"
             TGT_PLATFORM="OS64COMBINED"
         else
@@ -268,9 +273,13 @@ showParams()
     echo ""
     Log "#--------------------------------------------------------------------"
     Log "LIBNAME        : ${LIBNAME}"
+    Log "LIBREPO        : ${LIBREPO}"
+    Log "LIBVER         : ${LIBVER}"
     Log "BUILDWHAT      : ${BUILDWHAT}"
     Log "BUILDTYPE      : ${BUILDTYPE}"
     Log "BUILDTARGET    : ${BUILDTARGET}"
+    Log "0              : ${0}"
+    Log "SCRIPTPATH     : ${SCRIPTPATH}"
     Log "ROOTDIR        : ${ROOTDIR}"
     Log "BUILDOUT       : ${BUILDOUT}"
     Log "TARGET         : ${TARGET}"
@@ -313,7 +322,7 @@ LIBINSTFULL="${LIBINST}/${BUILDTARGET}/${BUILDTYPE}"
 if [ "$TGT_OS" == "ios" ]; then
 
     #-------------------------------------------------------------------
-    # Checkout and build Open3D
+# Checkout and build library
     #-------------------------------------------------------------------
 
     if [[ $BUILDTARGET == *"simulator"* ]]; then
@@ -602,26 +611,98 @@ fi
 #-------------------------------------------------------------------
 # Create full package
 #-------------------------------------------------------------------
-if [ -d "${PKGROOT}" ]; then
+if [[ $BUILDWHAT == *"mpack"* ]]; then
 
-    cd "${PKGROOT}"
+    if [ -d "${PKGROOT}" ]; then
 
-    TARGETINFO=
-    for SUB in */; do
-        echo "Adding: $SUB"
-        if [ -f "${SUB}/Info.target.plist" ]; then
-            TARGETINFO="$TARGETINFO$(cat "${SUB}/Info.target.plist")"
+        cd "${PKGROOT}"
+
+        TARGETINFO=
+        for SUB in */; do
+            echo "Adding: $SUB"
+            if [ -f "${SUB}/Info.target.plist" ]; then
+                TARGETINFO="$TARGETINFO$(cat "${SUB}/Info.target.plist")"
+            fi
+        done
+
+        if [ ! -z "$TARGETINFO" ]; then
+
+            TARGETINFO=""${TARGETINFO//$'\n'/\\n}""
+
+            cp "${ROOTDIR}/Info.plist.in" "${PKGROOT}/Info.plist"
+            sed -i '' "s|%%TARGETS%%|${TARGETINFO}|g" "${PKGROOT}/Info.plist"
+
+            cd "${PKGROOT}/.."
+
+            # Remove old package if any
+            if [ -f "${PKGFILE}" ]; then
+                rm "${PKGFILE}"
+            fi
+
+            # Create new package
+            zip -r "${PKGFILE}" "$PKGNAME" -x "*.DS_Store"
+
+            # Calculate sha256
+            openssl dgst -sha256 -r < "${PKGFILE}" | cut -f1 -d' ' > "${PKGFILE}.sha256.txt"
+
+            cd "${BUILDOUT}"
+
         fi
-    done
+    fi
 
-    if [ ! -z "$TARGETINFO" ]; then
+else
 
-        TARGETINFO=""${TARGETINFO//$'\n'/\\n}""
+    if [ -d "${PKGROOT}" ]; then
 
-        cp "${ROOTDIR}/Info.plist.in" "${PKGROOT}/Info.plist"
-        sed -i '' "s|%%TARGETS%%|${TARGETINFO}|g" "${PKGROOT}/Info.plist"
+        cd "${PKGROOT}"
 
-        cd "${PKGROOT}/.."
+        # Refresh package build directory
+        if [ -d "${PKGBUILD}" ]; then
+            rm -Rf "${PKGBUILD}"
+        fi
+        mkdir -p "${PKGBUILD}"
+
+        LIPO_CMD="lipo -create"
+        XCFR_CMD="xcodebuild -create-xcframework"
+        for SUB in */; do
+            SUB="${SUB%/}"
+            INCPATH="${SUB}/include"
+            LIBPATH="${SUB}/${LIBNAME}.a"
+            LIBBPATH="${PKGBUILD}/${LIBNAME}-${SUB}.a"
+            echo "\n=======================================================\n"
+            echo "SUB     : $SUB"
+            echo "INCPATH : $INCPATH"
+            echo "LIBPATH : $LIBPATH"
+            echo "LIBBPATH: $LIBBPATH"
+
+            if [ ! -f "${LIBPATH}" ]; then
+                exitWithError "Failed to find library: ${LIBPATH}"
+            fi
+            if [ ! -d "${INCPATH}" ]; then
+                exitWithError "Failed to find include: ${INCPATH}"
+            fi
+            cp "${LIBPATH}" "${LIBBPATH}"
+            LIPO_CMD="$LIPO_CMD ${LIBPATH}"
+            XCFR_CMD="$XCFR_CMD -library ${LIBBPATH} -headers ${INCPATH}"
+        done
+
+        LIBOUT="${PKGBUILD}/${PKGNAME}.a"
+        LIPO_CMD="$LIPO_CMD -output ${LIBOUT}"
+
+        PKGOUT="${PKGBUILD}/${PKGNAME}"
+        XCFR_CMD="$XCFR_CMD -output ${PKGOUT}"
+
+        echo "\n=======================================================\n"
+        echo "LIPO_CMD : $LIPO_CMD"
+        echo "XCFR_CMD : $XCFR_CMD"
+
+        # eval $LIPO_CMD
+        # exitOnError "Failed to create lipo"
+
+        eval $XCFR_CMD
+        exitOnError "Failed to create xcframework"
+
+        cd "${PKGBUILD}"
 
         # Remove old package if any
         if [ -f "${PKGFILE}" ]; then
@@ -637,6 +718,7 @@ if [ -d "${PKGROOT}" ]; then
         cd "${BUILDOUT}"
 
     fi
+
 fi
 
 showParams
