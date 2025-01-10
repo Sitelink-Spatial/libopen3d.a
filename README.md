@@ -17,8 +17,8 @@
 
     .binaryTarget(
         name: "libopen3d.a",
-        url: "https://github.com/Imajion/libopen3d.a/releases/download/r6/libopen3d.a.xcframework.zip",
-        checksum: "7a107303e5e11e7ec9a1e5cd25f8abdcdf52b38c5226a66d0d85f3a587e6084a"
+        url: "https://github.com/Imajion/libopen3d.a/releases/download/r7/libopen3d.a.xcframework.zip",
+        checksum: "9382565ba33adc6f6134d26447692e37cf9d860e175677b1ebd88e6123e85b2e"
     )
 
 ```

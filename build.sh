@@ -125,9 +125,16 @@ fi
 
 # ios-arm64_x86_64-simulator
 if [[ $BUILDTARGET == *"ios"* ]]; then
-    TGT_OS="ios"
+    if [[ $BUILDTARGET == *"simulator"* ]]; then
+        TGT_OS="ios"
+        TGT_SUPPORTS="iphonesimulator"
     else
+        TGT_OS="ios"
+        TGT_SUPPORTS="ios"
+    fi
+else
     TGT_OS="macos"
+    TGT_SUPPORTS="macos"
 fi
 
 if [[ $BUILDTARGET == *"arm64"* ]]; then
@@ -227,7 +234,7 @@ if [[ $BUILDTARGET == *"ios"* ]]; then
     if [[ $BUILDTARGET == *"simulator"* ]]; then
         if [ "${TGT_ARCH}" == "x86" ]; then
             TGT_PLATFORM="SIMULATOR"
-        elif [ "${TGT_ARCH}" == "x86_64" ]; then
+        elif [[ "${TGT_ARCH}" == "x86_64" ]]; then
             TGT_PLATFORM="SIMULATOR64"
         else
             TGT_PLATFORM="SIMULATORARM64"
@@ -235,9 +242,10 @@ if [[ $BUILDTARGET == *"ios"* ]]; then
     else
         if [ "${TGT_ARCH}" == "x86" ]; then
             TGT_PLATFORM="OS"
-        elif [ "${TGT_ARCH}" == *"x86_64"* ]; then
+        elif [[ "${TGT_ARCH}" == *"x86_64"* ]]; then
             TGT_ARCH="arm64_x86_64"
             TGT_PLATFORM="OS64COMBINED"
+            TOOLCHAIN="${TOOLCHAIN} -GXcode"
         else
             TGT_PLATFORM="OS64"
         fi
@@ -248,6 +256,8 @@ if [[ $BUILDTARGET == *"ios"* ]]; then
                -DCMAKE_TOOLCHAIN_FILE=${LIBROOT}/ios-cmake/ios.toolchain.cmake \
                -DPLATFORM=${TGT_PLATFORM} \
                -DENABLE_BITCODE=OFF \
+               -DENABLE_ARC=OFF \
+               -DENABLE_VISIBILITY=ON \
                -DDEPLOYMENT_TARGET=$TGT_OSVER \
                "
 else
@@ -283,7 +293,9 @@ showParams()
     Log "ROOTDIR        : ${ROOTDIR}"
     Log "BUILDOUT       : ${BUILDOUT}"
     Log "TARGET         : ${TARGET}"
+    Log "OS             : ${TGT_OS}"
     Log "OSVER          : ${TGT_OSVER}"
+    Log "SUPPORTS       : ${TGT_SUPPORTS}"
     Log "ARCH           : ${TGT_ARCH}"
     Log "PLATFORM       : ${TGT_PLATFORM}"
     Log "PKGNAME        : ${PKGNAME}"

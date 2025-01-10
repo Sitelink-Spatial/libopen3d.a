@@ -8,10 +8,12 @@ fi
 
 ./build.sh build $CONFIG arm64-apple-ios12.0
 
+# ./build.sh build $CONFIG arm64_x86_64-apple-ios12.0
+
 ./build.sh build $CONFIG arm64-apple-macos12.0
 
-# ./build.sh build $CONFIG x86_64-apple-ios12.0-simulator
+./build.sh build $CONFIG x86_64-apple-ios12.0-simulator
 
 # ./build.sh build $CONFIG arm64-apple-ios12.0-simulator
 
-./build.sh build $CONFIG arm64-x86_64-apple-ios12.0-simulator
+# ./build.sh build $CONFIG arm64-x86_64-apple-ios12.0-simulator
